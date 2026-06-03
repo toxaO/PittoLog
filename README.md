@@ -36,3 +36,7 @@ macOS/Linux では activate のパスだけ読み替えてください。
 ```bash
 pytest
 ```
+
+## ライセンス
+
+MIT License です。詳細は [LICENSE](LICENSE) を参照してください。
