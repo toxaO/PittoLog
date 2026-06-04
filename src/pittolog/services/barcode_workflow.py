@@ -60,7 +60,7 @@ class BarcodeWorkflow:
         except ValueError as error:
             return self.fail(f"{error}\n今の画面で必要なバーコードをスキャンしてください。")
 
-        return self.fail(f"読み取った値を処理できません。\nITEM:、DEPT:、ACTION: で始まるバーコードを確認してください。\n今の画面で必要なバーコードをスキャンしてください。\n読み取り値: {barcode}")
+        return self.fail("無効なバーコードがスキャンされました。")
 
     def _confirm(self) -> ScanResult:
         if self.item_barcode is None:

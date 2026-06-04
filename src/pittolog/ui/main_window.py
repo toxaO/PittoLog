@@ -81,15 +81,16 @@ class MainWindow(QMainWindow):
         self.workflow = BarcodeWorkflow(service)
         self.db_path = db_path
         self.setWindowTitle("PittoLog")
-        self.resize(1080, 720)
+        self.resize(980, 620)
+        self.setMinimumSize(860, 540)
         self.setStyleSheet(
             """
             QWidget {
-                font-size: 15px;
+                font-size: 14px;
             }
             QLineEdit, QComboBox {
-                min-height: 32px;
-                font-size: 17px;
+                min-height: 30px;
+                font-size: 16px;
                 border: 1px solid #b8c2cc;
                 border-radius: 7px;
                 padding: 3px 8px;
@@ -112,9 +113,9 @@ class MainWindow(QMainWindow):
                 border: none;
             }
             QPushButton {
-                min-height: 34px;
-                padding: 5px 12px;
-                font-size: 15px;
+                min-height: 30px;
+                padding: 4px 10px;
+                font-size: 14px;
                 border: 1px solid #aeb8c2;
                 border-radius: 8px;
                 background: #ffffff;
@@ -126,8 +127,8 @@ class MainWindow(QMainWindow):
                 background: #e5edf6;
             }
             QTabBar::tab {
-                min-height: 30px;
-                padding: 5px 14px;
+                min-height: 28px;
+                padding: 4px 12px;
                 border-top-left-radius: 7px;
                 border-top-right-radius: 7px;
             }
@@ -250,33 +251,33 @@ class MainWindow(QMainWindow):
                 border-radius: 8px;
             }
             QLabel#ScanMessage {
-                font-size: 20px;
+                font-size: 18px;
                 font-weight: 600;
             }
             QLabel#ScanDetail {
-                font-size: 16px;
+                font-size: 15px;
             }
             QLabel#CurrentItemName {
-                font-size: 22px;
+                font-size: 20px;
                 font-weight: 700;
                 color: #111827;
             }
             QLabel#RecentResult {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: 600;
                 color: #1f2937;
             }
             QLabel#ErrorMessage {
-                font-size: 17px;
+                font-size: 16px;
                 font-weight: 700;
                 color: #991b1b;
             }
             QLabel#PanelTitle {
-                font-size: 18px;
+                font-size: 17px;
                 font-weight: 600;
             }
             QLabel#ScanModeTitle {
-                font-size: 26px;
+                font-size: 23px;
                 font-weight: 800;
                 color: #111827;
             }
@@ -307,7 +308,7 @@ class MainWindow(QMainWindow):
         self.scan_input = QLineEdit()
         self.scan_input.setObjectName("ScanInput")
         self.scan_input.returnPressed.connect(self.handle_scan)
-        self.scan_input.setPlaceholderText("ここにバーコードが入ります")
+        self.scan_input.setPlaceholderText("バーコード入力欄")
         self.scan_input.installEventFilter(self)
         self.scan_frame: QFrame | None = None
         self.scan_error_active = False
@@ -317,7 +318,8 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("ScanMessage")
         self.status_label.setTextFormat(Qt.RichText)
         self.status_label.setWordWrap(True)
-        self.status_label.setFixedHeight(232)
+        self.status_label.setMinimumHeight(118)
+        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.status_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.current_item_name_label = QLabel("")
         self.current_item_name_label.setObjectName("CurrentItemName")
@@ -350,7 +352,7 @@ class MainWindow(QMainWindow):
         self.countdown_timer.timeout.connect(self.update_countdown)
         self.countdown_label = QLabel("")
         self.countdown_label.setObjectName("ScanDetail")
-        self.countdown_label.setFixedHeight(24)
+        self.countdown_label.setMinimumHeight(20)
 
         self.items_table = QTableWidget()
         self.categories_table = QTableWidget()
@@ -408,19 +410,13 @@ class MainWindow(QMainWindow):
         scan_frame.setProperty("panelRole", "scan")
         scan_frame.setProperty("mode", "operation")
         scan_frame.setProperty("scanReady", False)
-        scan_frame.setFixedHeight(405)
+        scan_frame.setMinimumHeight(270)
         scan_layout = QVBoxLayout(scan_frame)
-        scan_layout.setContentsMargins(14, 10, 14, 10)
-        scan_layout.setSpacing(2)
+        scan_layout.setContentsMargins(12, 8, 12, 8)
+        scan_layout.setSpacing(8)
         self.scan_mode_title = QLabel("物品スキャン")
         self.scan_mode_title.setObjectName("ScanModeTitle")
         scan_layout.addWidget(self.scan_mode_title)
-        scan_layout.addWidget(self.status_label)
-        scan_layout.addWidget(self.current_item_name_label)
-        scan_layout.addWidget(self.countdown_label)
-        for focus_widget in (scan_frame, self.scan_mode_title, self.status_label, self.countdown_label):
-            focus_widget.installEventFilter(self)
-            self.scan_focus_widgets.append(focus_widget)
 
         input_row = QHBoxLayout()
         input_row.setSpacing(8)
@@ -434,24 +430,31 @@ class MainWindow(QMainWindow):
         input_row.addWidget(cancel_button)
         input_row.addStretch()
         scan_layout.addLayout(input_row)
+        scan_layout.addSpacing(4)
+        scan_layout.addWidget(self.status_label)
+        scan_layout.addWidget(self.current_item_name_label)
+        scan_layout.addWidget(self.countdown_label)
+        for focus_widget in (scan_frame, self.scan_mode_title, self.status_label, self.countdown_label):
+            focus_widget.installEventFilter(self)
+            self.scan_focus_widgets.append(focus_widget)
 
         error_frame = QFrame()
         self.error_frame = error_frame
         error_frame.setObjectName("Panel")
         error_frame.setProperty("panelRole", "error")
         error_frame.setProperty("active", False)
-        error_frame.setFixedHeight(112)
+        error_frame.setFixedHeight(96)
         error_layout = QVBoxLayout(error_frame)
-        error_layout.setContentsMargins(12, 10, 12, 10)
+        error_layout.setContentsMargins(10, 8, 10, 8)
         error_layout.addWidget(self.error_label)
 
         latest_frame = QFrame()
         latest_frame.setObjectName("Panel")
         latest_frame.setProperty("mode", "operation")
         latest_layout = QGridLayout(latest_frame)
-        latest_layout.setContentsMargins(14, 12, 14, 12)
+        latest_layout.setContentsMargins(12, 8, 12, 8)
         latest_layout.setHorizontalSpacing(12)
-        latest_layout.setVerticalSpacing(8)
+        latest_layout.setVerticalSpacing(4)
         latest_title = QLabel("前回処理")
         latest_title.setObjectName("PanelTitle")
         latest_layout.addWidget(latest_title, 0, 0, 1, 2)
@@ -463,9 +466,9 @@ class MainWindow(QMainWindow):
         latest_layout.addWidget(self.recent_department_label, 3, 1)
         latest_layout.setColumnStretch(1, 1)
 
-        scan_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        scan_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         latest_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        layout.addWidget(scan_frame)
+        layout.addWidget(scan_frame, 1)
         layout.addWidget(error_frame)
         layout.addWidget(latest_frame)
         layout.addStretch()
@@ -627,11 +630,11 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         widget.setObjectName("OperationPage")
         layout = QHBoxLayout(widget)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
         scan_panel = self._build_scan_panel()
-        scan_panel.setMinimumWidth(420)
-        scan_panel.setMaximumWidth(560)
+        scan_panel.setMinimumWidth(380)
+        scan_panel.setMaximumWidth(520)
         layout.addWidget(scan_panel, 3)
         layout.addWidget(self._open_loans_tab(), 5)
         return widget
@@ -975,7 +978,7 @@ class MainWindow(QMainWindow):
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
         table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        table.verticalHeader().setDefaultSectionSize(34)
+        table.verticalHeader().setDefaultSectionSize(30)
         layout.addWidget(table)
         return widget
 

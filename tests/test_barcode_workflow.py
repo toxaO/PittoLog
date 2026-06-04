@@ -86,9 +86,7 @@ def test_scan_requires_known_prefix(tmp_path) -> None:
     result = workflow.handle_scan("000001")
 
     assert not result.ok
-    assert "ITEM:" in result.message
-    assert "DEPT:" in result.message
-    assert "ACTION:" in result.message
+    assert result.message == "無効なバーコードがスキャンされました。"
 
 
 def test_unknown_department_barcode_fails_when_scanned(tmp_path) -> None:
