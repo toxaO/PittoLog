@@ -128,6 +128,12 @@ def test_normalize_barcode_accepts_action_plus_separator_and_control_spaces() ->
     assert normalize_barcode("]C0ACTION+001") == "ACTION:001"
 
 
+def test_normalize_barcode_converts_fullwidth_numbers_and_letters() -> None:
+    assert normalize_barcode("ＩＴＥＭ：０００００１") == "ITEM:000001"
+    assert normalize_barcode("ＤＥＰＴ＋０００１") == "DEPT:0001"
+    assert normalize_barcode("ＡＣＴＩＯＮ：００１") == "ACTION:001"
+
+
 def test_registration_strips_plus_after_prefix_separator(tmp_path) -> None:
     service = make_service(tmp_path)
 

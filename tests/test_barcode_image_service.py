@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pittolog.services.barcode_image_service import code128_b_modules, write_barcode_sheet_pdf, write_barcode_sheet_png, write_test_sheet_pdf, write_test_sheet_png
+from pittolog.services.barcode_image_service import code128_b_modules, normalize_code128_b, write_barcode_sheet_pdf, write_barcode_sheet_png, write_test_sheet_pdf, write_test_sheet_png
 
 
 def test_code128_modules_are_generated() -> None:
@@ -16,6 +16,10 @@ def test_code128_modules_can_append_enter() -> None:
     enter_modules = code128_b_modules("ACTION:001", append_enter=True)
 
     assert len(enter_modules) > len(plain_modules)
+
+
+def test_code128_value_converts_fullwidth_numbers_and_letters() -> None:
+    assert normalize_code128_b("ＡＣＴＩＯＮ：００１") == "ACTION:001"
 
 
 def test_write_test_sheet_png(tmp_path) -> None:

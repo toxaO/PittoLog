@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import unicodedata
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -250,7 +251,7 @@ def code128_b_modules(value: str, append_enter: bool = False) -> list[bool]:
 
 
 def normalize_code128_b(value: str) -> str:
-    normalized = value.strip().upper()
+    normalized = unicodedata.normalize("NFKC", value).strip().upper()
     if not normalized:
         raise ValueError("バーコード値を入力してください。")
     if any(ord(character) < 32 or ord(character) > 126 for character in normalized):

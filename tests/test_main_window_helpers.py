@@ -13,6 +13,15 @@ def test_parse_sheet_entries_accepts_comma_and_tab() -> None:
     ]
 
 
+def test_parse_sheet_entries_converts_fullwidth_barcode_values() -> None:
+    entries = parse_sheet_entries("総務,ＤＥＰＴ：０００１\n確認,ＡＣＴＩＯＮ：００１")
+
+    assert entries == [
+        ("総務", "DEPT:0001"),
+        ("確認", "ACTION:001"),
+    ]
+
+
 def test_parse_positive_float_uses_japanese_message() -> None:
     try:
         parse_positive_float("abc", "線幅 mm")

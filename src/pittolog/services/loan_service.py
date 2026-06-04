@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+import unicodedata
 from pathlib import Path
 
 
@@ -704,7 +705,8 @@ class LoanService:
 
 
 def normalize_barcode(value: str) -> str:
-    normalized = "".join(value.strip().upper().split()).replace("：", ":").replace("＋", "+")
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = "".join(normalized.strip().upper().split()).replace("：", ":").replace("＋", "+")
     if len(normalized) >= 3 and normalized.startswith("]C"):
         normalized = normalized[3:]
     for label in ("ITEM", "DEPT", "ACTION"):

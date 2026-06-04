@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 
 from pittolog.services.barcode_image_service import render_code128_png, safe_filename, write_barcode_png_file, write_barcode_sheet_pdf, write_test_sheet_pdf
 from pittolog.services.barcode_workflow import BarcodeWorkflow
-from pittolog.services.loan_service import LoanService
+from pittolog.services.loan_service import LoanService, normalize_barcode
 
 
 TABLE_HEADER_LABELS = {
@@ -837,10 +837,13 @@ class MainWindow(QMainWindow):
         edit_button.clicked.connect(self.edit_selected_department)
         remove_button = QPushButton("登録解除")
         remove_button.clicked.connect(self.deactivate_selected_department)
+        issue_button = QPushButton("印刷リストへ追加")
+        issue_button.clicked.connect(self.add_selected_departments_to_sheet_entries)
         buttons.insertWidget(0, add_button)
         buttons.insertWidget(1, edit_button)
-        buttons.insertWidget(2, remove_button)
-        widget.setMaximumWidth(620)
+        buttons.insertWidget(2, issue_button)
+        buttons.insertWidget(3, remove_button)
+        widget.setMaximumWidth(760)
         return widget
 
     def _events_tab(self) -> QWidget:
@@ -1060,6 +1063,9 @@ class MainWindow(QMainWindow):
         single_layout.addRow(self.barcode_category_label, self.barcode_category_combo)
         single_layout.addRow("対象", self.barcode_target_combo)
         single_layout.addRow(generate_button)
+        add_current_button = QPushButton("選択中を印刷リストへ追加")
+        add_current_button.clicked.connect(self.add_current_barcode_to_sheet_entries)
+        single_layout.addRow(add_current_button)
 
         sheet_frame = QFrame()
         sheet_frame.setObjectName("BarcodePanel")
@@ -1409,6 +1415,30 @@ class MainWindow(QMainWindow):
         self.append_sheet_entries(entries)
         if self.management_tabs is not None:
             self.management_tabs.setCurrentIndex(4)
+
+    def add_selected_departments_to_sheet_entries(self) -> None:
+        department_ids = self._selected_ids(self.departments_table)
+        if not department_ids:
+            QMessageBox.warning(self, "選択なし", "部署を選択してください。")
+            return
+        entries: list[tuple[str, str]] = []
+        try:
+            for department_id in department_ids:
+                department = self.service.get_department(department_id)
+                entries.append((str(department["name"]), str(department["barcode"])))
+        except ValueError as error:
+            QMessageBox.warning(self, "追加失敗", str(error))
+            return
+        self.append_sheet_entries(entries)
+        if self.management_tabs is not None:
+            self.management_tabs.setCurrentIndex(4)
+
+    def add_current_barcode_to_sheet_entries(self) -> None:
+        barcode = self.current_barcode_value()
+        if not barcode:
+            QMessageBox.warning(self, "選択なし", "対象を選択してください。")
+            return
+        self.append_sheet_entries([(self.barcode_display_label(barcode) or barcode, barcode)])
 
     def append_sheet_entries(self, entries: list[tuple[str, str]]) -> None:
         current = self.sheet_entries.toPlainText().rstrip()
@@ -1829,7 +1859,7 @@ def parse_sheet_entries(text: str) -> list[tuple[str, str]]:
         else:
             label = value = line
         label = label.strip()
-        value = value.strip().upper()
+        value = normalize_barcode(value)
         if not label or not value:
             raise ValueError(f"{line_number}行目: ラベルとバーコード値を入力してください。")
         entries.append((label, value))
