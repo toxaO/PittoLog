@@ -25,7 +25,6 @@ STOP = 106
 CARRIAGE_RETURN_CODE_A = 77
 SHEET_COLUMNS = 2
 SHEET_ROWS = 7
-SHEET_PAGE_CAPACITY = SHEET_COLUMNS * SHEET_ROWS
 
 TEST_BARCODES = [
     ("確認", "ACTION:001"),
@@ -46,7 +45,7 @@ TEST_BARCODES = [
 def write_barcode_png(
     value: str,
     output_dir: Path,
-    width_mm: float = 0.35,
+    width_mm: float = 70.0,
     height_mm: float = 18.0,
     quiet_zone_mm: float = 4.0,
     show_text: bool = True,
@@ -56,7 +55,7 @@ def write_barcode_png(
     output_dir.mkdir(parents=True, exist_ok=True)
     image = render_code128_png(
         barcode_value,
-        module_width_px=max(1, round(width_mm * 8)),
+        module_width_px=module_width_px_for_total_width(barcode_value, width_mm, append_enter=True),
         height_px=max(80, round(height_mm * 8)),
         quiet_zone_px=max(16, round(quiet_zone_mm * 8)),
         show_text=show_text,
@@ -71,7 +70,7 @@ def write_barcode_png(
 def write_barcode_png_file(
     value: str,
     output_path: Path,
-    width_mm: float = 0.35,
+    width_mm: float = 70.0,
     height_mm: float = 18.0,
     quiet_zone_mm: float = 4.0,
     show_text: bool = True,
@@ -81,7 +80,7 @@ def write_barcode_png_file(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image = render_code128_png(
         barcode_value,
-        module_width_px=max(1, round(width_mm * 8)),
+        module_width_px=module_width_px_for_total_width(barcode_value, width_mm, append_enter=True),
         height_px=max(80, round(height_mm * 8)),
         quiet_zone_px=max(16, round(quiet_zone_mm * 8)),
         show_text=show_text,
@@ -101,11 +100,12 @@ def write_test_sheet_png(output_path: Path) -> Path:
 
 def write_test_sheet_pdf(
     output_path: Path,
-    width_mm: float = 0.35,
+    width_mm: float = 70.0,
     height_mm: float = 18.0,
     quiet_zone_mm: float = 4.0,
+    columns: int = SHEET_COLUMNS,
 ) -> Path:
-    return write_barcode_sheet_pdf(TEST_BARCODES, output_path, width_mm, height_mm, quiet_zone_mm)
+    return write_barcode_sheet_pdf(TEST_BARCODES, output_path, width_mm, height_mm, quiet_zone_mm, columns)
 
 
 def write_barcode_sheet_png(entries: list[tuple[str, str]], output_path: Path) -> Path:
@@ -120,23 +120,26 @@ def write_barcode_sheet_png(entries: list[tuple[str, str]], output_path: Path) -
 def write_barcode_sheet_pdf(
     entries: list[tuple[str, str]],
     output_path: Path,
-    width_mm: float = 0.35,
+    width_mm: float = 70.0,
     height_mm: float = 18.0,
     quiet_zone_mm: float = 4.0,
+    columns: int = SHEET_COLUMNS,
 ) -> Path:
     if not entries:
         raise ValueError("バーコード一覧を入力してください。")
+    capacity = sheet_page_capacity(columns)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pages = [
         render_barcode_sheet(
             page_entries,
             page_number=index + 1,
-            page_count=(len(entries) + SHEET_PAGE_CAPACITY - 1) // SHEET_PAGE_CAPACITY,
+            page_count=(len(entries) + capacity - 1) // capacity,
             width_mm=width_mm,
             height_mm=height_mm,
             quiet_zone_mm=quiet_zone_mm,
+            columns=columns,
         )
-        for index, page_entries in enumerate(chunk_entries(entries, SHEET_PAGE_CAPACITY))
+        for index, page_entries in enumerate(chunk_entries(entries, capacity))
     ]
     pages[0].save(output_path, "PDF", save_all=True, append_images=pages[1:], resolution=300)
     return output_path
@@ -146,14 +149,16 @@ def render_barcode_sheet(
     entries: list[tuple[str, str]],
     page_number: int = 1,
     page_count: int = 1,
-    width_mm: float = 0.35,
+    width_mm: float = 70.0,
     height_mm: float = 18.0,
     quiet_zone_mm: float = 4.0,
+    columns: int = SHEET_COLUMNS,
 ) -> Image.Image:
+    capacity = sheet_page_capacity(columns)
     width, height = 2480, 3508
     margin = 140
     title_height = 150
-    cell_width = (width - margin * 2) // SHEET_COLUMNS
+    cell_width = (width - margin * 2) // columns
     cell_height = (height - margin * 2 - title_height) // SHEET_ROWS
 
     image = Image.new("RGB", (width, height), "white")
@@ -168,9 +173,9 @@ def render_barcode_sheet(
         bbox = draw.textbbox((0, 0), page_text, font=value_font)
         draw.text((width - margin - (bbox[2] - bbox[0]), margin + 78), page_text, fill="black", font=value_font)
 
-    for index, (label, value) in enumerate(entries[:SHEET_PAGE_CAPACITY]):
-        row = index // SHEET_COLUMNS
-        column = index % SHEET_COLUMNS
+    for index, (label, value) in enumerate(entries[:capacity]):
+        row = index // columns
+        column = index % columns
         x = margin + column * cell_width
         y = margin + title_height + row * cell_height
         draw.rounded_rectangle((x + 10, y + 10, x + cell_width - 20, y + cell_height - 18), radius=8, outline="#999999", width=2)
@@ -178,7 +183,7 @@ def render_barcode_sheet(
         draw.text((x + 38, y + 82), f"{value} + Enter", fill="#333333", font=value_font)
         barcode = render_code128_png(
             value,
-            module_width_px=max(1, round(width_mm * 8)),
+            module_width_px=module_width_px_for_total_width(value, width_mm, append_enter=True),
             height_px=max(80, round(height_mm * 8)),
             quiet_zone_px=max(16, round(quiet_zone_mm * 8)),
             show_text=False,
@@ -194,6 +199,12 @@ def render_barcode_sheet(
 
 def chunk_entries(entries: list[tuple[str, str]], size: int) -> list[list[tuple[str, str]]]:
     return [entries[index:index + size] for index in range(0, len(entries), size)]
+
+
+def sheet_page_capacity(columns: int) -> int:
+    if columns < 1 or columns > 4:
+        raise ValueError("A4まとめPDFの列数は1から4の範囲で指定してください。")
+    return columns * SHEET_ROWS
 
 
 def render_code128_png(
@@ -227,6 +238,12 @@ def render_code128_png(
         text_width = bbox[2] - bbox[0]
         draw.text(((width - text_width) // 2, label_height + height_px + 8), value, fill="black", font=font)
     return image
+
+
+def module_width_px_for_total_width(value: str, width_mm: float, append_enter: bool = False) -> int:
+    modules = code128_b_modules(value, append_enter)
+    target_width_px = max(1, round(width_mm * 8))
+    return max(1, round(target_width_px / len(modules)))
 
 
 def code128_b_modules(value: str, append_enter: bool = False) -> list[bool]:

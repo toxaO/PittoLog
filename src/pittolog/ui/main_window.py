@@ -3,11 +3,12 @@ from __future__ import annotations
 from html import escape
 from io import BytesIO
 import sqlite3
+import tempfile
 from pathlib import Path
 
 from PIL import ImageOps
-from PySide6.QtCore import QDate, QEvent, QTimer, Qt
-from PySide6.QtGui import QIntValidator, QPainter, QPixmap
+from PySide6.QtCore import QDate, QEvent, QTimer, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QIntValidator, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -37,7 +38,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pittolog.services.barcode_image_service import render_code128_png, safe_filename, write_barcode_png_file, write_barcode_sheet_pdf, write_test_sheet_pdf
+from pittolog import __version__
+from pittolog.services.barcode_image_service import module_width_px_for_total_width, render_code128_png, safe_filename, write_barcode_png_file, write_barcode_sheet_pdf, write_test_sheet_pdf
 from pittolog.services.barcode_workflow import BarcodeWorkflow
 from pittolog.services.loan_service import LoanService, normalize_barcode
 
@@ -71,18 +73,18 @@ class RoundedComboBox(QComboBox):
 
 class MainWindow(QMainWindow):
     OPERATION_COLOR = "#2f855a"
-    OPERATION_BG = "#f3faf6"
+    OPERATION_BG = "#e8f6ed"
     MANAGEMENT_COLOR = "#2563a8"
-    MANAGEMENT_BG = "#f4f8ff"
+    MANAGEMENT_BG = "#e8f1fc"
 
     def __init__(self, service: LoanService, db_path: Path) -> None:
         super().__init__()
         self.service = service
         self.workflow = BarcodeWorkflow(service)
         self.db_path = db_path
-        self.setWindowTitle("PittoLog")
-        self.resize(980, 620)
-        self.setMinimumSize(860, 540)
+        self.setWindowTitle(f"PittoLog {__version__}")
+        self.resize(1120, 680)
+        self.setMinimumSize(980, 580)
         self.setStyleSheet(
             """
             QWidget {
@@ -112,6 +114,12 @@ class MainWindow(QMainWindow):
                 height: 0px;
                 border: none;
             }
+            QComboBox QAbstractItemView {
+                color: #111827;
+                background: #ffffff;
+                selection-background-color: #2563a8;
+                selection-color: #ffffff;
+            }
             QPushButton {
                 min-height: 30px;
                 padding: 4px 10px;
@@ -135,7 +143,7 @@ class MainWindow(QMainWindow):
             QTabWidget#ManagementTabs::pane {
                 border: none;
                 border-radius: 10px;
-                background: #f4f8ff;
+                background: #e8f1fc;
             }
             QTabBar#ManagementTabBar::tab:selected {
                 background: #2563a8;
@@ -167,13 +175,13 @@ class MainWindow(QMainWindow):
                 border-radius: 6px;
             }
             QFrame#FilterGroup {
-                background: #ffffff;
-                border: 1px solid #d7e0ea;
+                background: #f7fbff;
+                border: 1px solid #c8d7e8;
                 border-radius: 10px;
             }
             QFrame#BarcodePanel {
-                background: #ffffff;
-                border: 1px solid #d7e0ea;
+                background: #f7fbff;
+                border: 1px solid #c8d7e8;
                 border-radius: 10px;
             }
             QFrame#BarcodePanel QWidget,
@@ -295,11 +303,11 @@ class MainWindow(QMainWindow):
                 color: #166534;
             }
             QWidget#OperationPage {
-                background: #f3faf6;
+                background: #e8f6ed;
                 border-radius: 10px;
             }
             QWidget#ManagementPage {
-                background: #f4f8ff;
+                background: #e8f1fc;
                 border-radius: 10px;
             }
             """
@@ -347,6 +355,12 @@ class MainWindow(QMainWindow):
         self.csv_output_dir = self.service.get_setting("csv_output_dir", fallback_output_dir)
         self.png_output_dir = self.service.get_setting("png_output_dir", fallback_output_dir)
         self.pdf_output_dir = self.service.get_setting("pdf_output_dir", fallback_output_dir)
+        self.default_item_active_filter = self.service.get_setting("default_item_active_filter", "active")
+        self.default_event_date_filter = self.service.get_setting("default_event_date_filter", "today")
+        if self.default_item_active_filter not in ("active", "", "inactive"):
+            self.default_item_active_filter = "active"
+        if self.default_event_date_filter not in ("today", "all"):
+            self.default_event_date_filter = "today"
         self.countdown_remaining = 0
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self.update_countdown)
@@ -712,7 +726,7 @@ class MainWindow(QMainWindow):
     def _management_tab(self) -> QTabWidget:
         tabs = QTabWidget()
         tabs.setObjectName("ManagementTabs")
-        tabs.setStyleSheet(tabs.styleSheet() + "QTabWidget#ManagementTabs { background: #f4f8ff; border-radius: 10px; }")
+        tabs.setStyleSheet(tabs.styleSheet() + "QTabWidget#ManagementTabs { background: #e8f1fc; border-radius: 10px; }")
         tabs.tabBar().setObjectName("ManagementTabBar")
         self.management_tabs = tabs
         tabs.addTab(self._items_tab(), "物品")
@@ -748,6 +762,7 @@ class MainWindow(QMainWindow):
         self.item_active_filter.addItem("有効", "active")
         self.item_active_filter.addItem("すべて", "")
         self.item_active_filter.addItem("無効", "inactive")
+        set_combo_current_data(self.item_active_filter, self.default_item_active_filter)
         self.item_active_filter.currentIndexChanged.connect(self.refresh_items)
         self.item_status_filter.addItem("すべて", "")
         self.item_status_filter.addItem("在庫", "在庫")
@@ -864,12 +879,14 @@ class MainWindow(QMainWindow):
         self.event_sort_order.addItem("昇順", False)
         self.event_sort_order.currentIndexChanged.connect(self.refresh_events)
         today = QDate.currentDate()
+        use_event_date_filter = self.default_event_date_filter == "today"
+        self.event_date_filter.setChecked(use_event_date_filter)
         for date_edit in (self.event_date_from, self.event_date_to):
             date_edit.setCalendarPopup(True)
             date_edit.setDisplayFormat("yyyy-MM-dd")
             date_edit.setDate(today)
             date_edit.dateChanged.connect(lambda _date: self.refresh_events())
-            date_edit.setEnabled(False)
+            date_edit.setEnabled(use_event_date_filter)
         self.event_date_filter.toggled.connect(self.event_date_from.setEnabled)
         self.event_date_filter.toggled.connect(self.event_date_to.setEnabled)
         self.event_date_filter.toggled.connect(lambda _checked: self.refresh_events())
@@ -942,16 +959,28 @@ class MainWindow(QMainWindow):
         self.result_clear_input = QLineEdit(str(self.result_clear_seconds))
         self.result_clear_input.setValidator(QIntValidator(10, 1800, self))
         self.result_clear_input.setMaximumWidth(120)
+        self.default_item_active_filter_input = RoundedComboBox()
+        self.default_item_active_filter_input.addItem("有効", "active")
+        self.default_item_active_filter_input.addItem("すべて", "")
+        self.default_item_active_filter_input.addItem("無効", "inactive")
+        set_combo_current_data(self.default_item_active_filter_input, self.default_item_active_filter)
+        self.default_event_date_filter_input = RoundedComboBox()
+        self.default_event_date_filter_input.addItem("当日分", "today")
+        self.default_event_date_filter_input.addItem("全期間", "all")
+        set_combo_current_data(self.default_event_date_filter_input, self.default_event_date_filter)
         csv_output_layout = self.output_dir_row(self.csv_output_dir_input)
         png_output_layout = self.output_dir_row(self.png_output_dir_input)
         pdf_output_layout = self.output_dir_row(self.pdf_output_dir_input)
         save_button = QPushButton("設定を保存")
         save_button.clicked.connect(self.save_timer_settings)
+        layout.addRow("バージョン", QLabel(__version__))
         layout.addRow("CSV出力先フォルダ", csv_output_layout)
         layout.addRow("PNG出力先フォルダ", png_output_layout)
         layout.addRow("PDF出力先フォルダ", pdf_output_layout)
         layout.addRow("読み取り中のリセット時間（秒）", self.pending_reset_input)
         layout.addRow("読み取り結果を表示する時間（秒）", self.result_clear_input)
+        layout.addRow("物品一覧の初期表示", self.default_item_active_filter_input)
+        layout.addRow("履歴の初期期間", self.default_event_date_filter_input)
         layout.addRow(save_button)
         return widget
 
@@ -993,7 +1022,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
         self.barcode_kind = RoundedComboBox()
         self.barcode_kind.addItems(["ITEM", "DEPT", "ACTION"])
-        self.barcode_width = QLineEdit("0.35")
+        self.barcode_width = QLineEdit("70")
         self.barcode_height = QLineEdit("18")
         self.barcode_quiet_zone = QLineEdit("4")
         for size_input in (self.barcode_width, self.barcode_height, self.barcode_quiet_zone):
@@ -1011,8 +1040,13 @@ class MainWindow(QMainWindow):
         self.sheet_entries = QTextEdit()
         self.sheet_entries.setMinimumHeight(170)
         self.sheet_entries.setPlaceholderText("物品1,ITEM:000001")
+        self.sheet_columns = QLineEdit("2")
+        self.sheet_columns.setValidator(QIntValidator(1, 4, self))
+        self.sheet_columns.setMaximumWidth(70)
         sheet_button = QPushButton("A4まとめPDF作成")
         sheet_button.clicked.connect(self.generate_barcode_sheet)
+        preview_sheet_button = QPushButton("プレビュー")
+        preview_sheet_button.clicked.connect(self.preview_barcode_sheet)
         test_sheet_button = QPushButton("テスト用A4 PDF作成")
         test_sheet_button.clicked.connect(self.generate_test_sheet)
 
@@ -1029,9 +1063,9 @@ class MainWindow(QMainWindow):
         size_title = QLabel("サイズ設定")
         size_title.setObjectName("PanelTitle")
         size_controls.addWidget(size_title, 0, 0, 1, 3)
-        size_controls.addWidget(QLabel("長さ mm"), 1, 0)
+        size_controls.addWidget(QLabel("全体幅 mm"), 1, 0)
         size_controls.addWidget(self.barcode_width, 1, 1)
-        size_controls.addWidget(QLabel("バーコードの長さ"), 1, 2)
+        size_controls.addWidget(QLabel("バーコード本体の横幅"), 1, 2)
         size_controls.addWidget(QLabel("高さ mm"), 2, 0)
         size_controls.addWidget(self.barcode_height, 2, 1)
         size_controls.addWidget(QLabel("バーコードの高さ"), 2, 2)
@@ -1077,9 +1111,15 @@ class MainWindow(QMainWindow):
         sheet_title = QLabel("A4まとめPDF")
         sheet_title.setObjectName("PanelTitle")
         sheet_layout.addWidget(sheet_title)
+        sheet_columns_row = QHBoxLayout()
+        sheet_columns_row.addWidget(QLabel("列数"))
+        sheet_columns_row.addWidget(self.sheet_columns)
+        sheet_columns_row.addStretch()
+        sheet_layout.addLayout(sheet_columns_row)
         sheet_layout.addWidget(QLabel("印刷するバーコード"))
         sheet_layout.addWidget(self.sheet_entries, 1)
         sheet_buttons = QHBoxLayout()
+        sheet_buttons.addWidget(preview_sheet_button)
         sheet_buttons.addWidget(sheet_button)
         sheet_buttons.addWidget(test_sheet_button)
         sheet_buttons.addStretch()
@@ -1101,7 +1141,7 @@ class MainWindow(QMainWindow):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background: #f4f8ff; border: none; } QWidget#BarcodePage { background: #f4f8ff; }")
+        scroll_area.setStyleSheet("QScrollArea { background: #e8f1fc; border: none; } QWidget#BarcodePage { background: #e8f1fc; }")
         scroll_area.setWidget(content)
         self.barcode_kind.currentIndexChanged.connect(self.refresh_barcode_targets)
         self.barcode_category_combo.currentIndexChanged.connect(self.refresh_barcode_targets)
@@ -1180,14 +1220,20 @@ class MainWindow(QMainWindow):
         self.csv_output_dir = str(csv_output_dir)
         self.png_output_dir = str(png_output_dir)
         self.pdf_output_dir = str(pdf_output_dir)
+        self.default_item_active_filter = str(self.default_item_active_filter_input.currentData() or "")
+        self.default_event_date_filter = str(self.default_event_date_filter_input.currentData() or "today")
         self.csv_output_dir_input.setText(self.csv_output_dir)
         self.png_output_dir_input.setText(self.png_output_dir)
         self.pdf_output_dir_input.setText(self.pdf_output_dir)
         self.service.set_setting("csv_output_dir", self.csv_output_dir)
         self.service.set_setting("png_output_dir", self.png_output_dir)
         self.service.set_setting("pdf_output_dir", self.pdf_output_dir)
+        self.service.set_setting("default_item_active_filter", self.default_item_active_filter)
+        self.service.set_setting("default_event_date_filter", self.default_event_date_filter)
         self.service.set_setting_int("pending_reset_seconds", self.pending_reset_seconds)
         self.service.set_setting_int("result_clear_seconds", self.result_clear_seconds)
+        self.clear_item_query()
+        self.clear_event_query()
         QMessageBox.information(self, "設定保存", "設定を保存しました。")
 
     def parse_output_dir(self, text: str, label: str) -> Path:
@@ -1390,17 +1436,39 @@ class MainWindow(QMainWindow):
         try:
             entries = parse_sheet_entries(self.sheet_entries.toPlainText())
             width, height, quiet_zone = self.barcode_size_values()
+            columns = self.barcode_sheet_columns()
             written_path = write_barcode_sheet_pdf(
                 entries,
                 Path(path),
                 width,
                 height,
                 quiet_zone,
+                columns,
             )
         except ValueError as error:
             QMessageBox.warning(self, "作成失敗", str(error))
             return
         QMessageBox.information(self, "作成完了", f"PDFを作成しました。\n{written_path}")
+
+    def preview_barcode_sheet(self) -> None:
+        try:
+            entries = parse_sheet_entries(self.sheet_entries.toPlainText())
+            width, height, quiet_zone = self.barcode_size_values()
+            columns = self.barcode_sheet_columns()
+            preview_path = Path(tempfile.gettempdir()) / "pittolog_barcode_sheet_preview.pdf"
+            written_path = write_barcode_sheet_pdf(
+                entries,
+                preview_path,
+                width,
+                height,
+                quiet_zone,
+                columns,
+            )
+        except ValueError as error:
+            QMessageBox.warning(self, "プレビュー失敗", str(error))
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(written_path))):
+            QMessageBox.warning(self, "プレビュー失敗", f"PDFを開けませんでした。\n{written_path}")
 
     def add_selected_items_to_sheet_entries(self) -> None:
         item_ids = self._selected_ids(self.items_table)
@@ -1457,11 +1525,13 @@ class MainWindow(QMainWindow):
             return
         try:
             width, height, quiet_zone = self.barcode_size_values()
+            columns = self.barcode_sheet_columns()
             written_path = write_test_sheet_pdf(
                 Path(path),
                 width,
                 height,
                 quiet_zone,
+                columns,
             )
         except ValueError as error:
             QMessageBox.warning(self, "作成失敗", str(error))
@@ -1470,10 +1540,13 @@ class MainWindow(QMainWindow):
 
     def barcode_size_values(self) -> tuple[float, float, float]:
         return (
-            parse_positive_float(self.barcode_width.text(), "長さ mm"),
+            parse_positive_float(self.barcode_width.text(), "全体幅 mm"),
             parse_positive_float(self.barcode_height.text(), "高さ mm"),
             parse_positive_float(self.barcode_quiet_zone.text(), "余白 mm"),
         )
+
+    def barcode_sheet_columns(self) -> int:
+        return parse_int_range(self.sheet_columns.text(), "A4まとめPDFの列数", 1, 4)
 
     def update_barcode_preview(self) -> None:
         barcode = self.current_barcode_value(default_if_empty=True)
@@ -1481,7 +1554,7 @@ class MainWindow(QMainWindow):
             width, height, quiet_zone = self.barcode_size_values()
             image = render_code128_png(
                 barcode,
-                module_width_px=max(1, round(width * 8)),
+                module_width_px=module_width_px_for_total_width(barcode, width, append_enter=True),
                 height_px=max(80, round(height * 8)),
                 quiet_zone_px=max(16, round(quiet_zone * 8)),
                 show_text=True,
@@ -1502,7 +1575,7 @@ class MainWindow(QMainWindow):
         self.barcode_preview.setText("")
         self.barcode_preview.setPixmap(pixmap.scaled(330, 92, Qt.KeepAspectRatio, Qt.FastTransformation))
         self.barcode_preview_note.setText(
-            f"表示例: {barcode} + Enter / 長さ {width:g}mm、バーコード高さ {height:g}mm、左右余白 {quiet_zone:g}mm"
+            f"表示例: {barcode} + Enter / 全体幅 {width:g}mm、バーコード高さ {height:g}mm、左右余白 {quiet_zone:g}mm"
         )
 
     def current_barcode_value(self, default_if_empty: bool = False) -> str:
@@ -1586,7 +1659,7 @@ class MainWindow(QMainWindow):
         self.item_query_input.clear()
         self.item_category_filter.setCurrentIndex(0)
         self.item_status_filter.setCurrentIndex(0)
-        self.item_active_filter.setCurrentIndex(0)
+        set_combo_current_data(self.item_active_filter, self.default_item_active_filter)
         self.item_loan_department_filter.setCurrentIndex(0)
         self.refresh_items()
 
@@ -1631,7 +1704,10 @@ class MainWindow(QMainWindow):
         self.event_department_filter.setCurrentIndex(0)
         self.event_sort_field.setCurrentIndex(0)
         self.event_sort_order.setCurrentIndex(0)
-        self.event_date_filter.setChecked(False)
+        today = QDate.currentDate()
+        self.event_date_from.setDate(today)
+        self.event_date_to.setDate(today)
+        self.event_date_filter.setChecked(self.default_event_date_filter == "today")
         self.refresh_events()
 
     def refresh_item_category_filter(self) -> None:
@@ -1675,10 +1751,13 @@ class MainWindow(QMainWindow):
         header = self.loans_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Interactive)
         self.loans_table.setColumnWidth(0, 145)
-        self.loans_table.setColumnWidth(2, 95)
-        self.loans_table.setColumnWidth(3, 125)
-        self.loans_table.setColumnWidth(4, 95)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.loans_table.resizeColumnToContents(1)
+        item_width = min(max(self.loans_table.columnWidth(1), 170), 280)
+        self.loans_table.setColumnWidth(1, item_width)
+        self.loans_table.setColumnWidth(2, 110)
+        self.loans_table.setColumnWidth(3, 135)
+        self.loans_table.setColumnWidth(4, 140)
+        header.setSectionResizeMode(4, QHeaderView.Stretch)
 
     def export_items(self) -> None:
         self._export("items.csv", self.current_item_rows())
@@ -1942,6 +2021,11 @@ def repolish_widget(widget: QWidget) -> None:
     widget.style().unpolish(widget)
     widget.style().polish(widget)
     widget.update()
+
+
+def set_combo_current_data(combo: QComboBox, value) -> None:
+    index = combo.findData(value)
+    combo.setCurrentIndex(index if index >= 0 else 0)
 
 
 def filter_group() -> QFrame:
