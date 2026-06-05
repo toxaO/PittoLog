@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import ImageOps
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QIntValidator, QPainter, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QIntValidator, QPainter, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListView,
     QMainWindow,
     QMessageBox,
     QPushButton,
@@ -74,8 +75,8 @@ class RoundedComboBox(QComboBox):
         QAbstractItemView {
             color: #111827;
             background: #ffffff;
-            selection-background-color: #2563a8;
-            selection-color: #ffffff;
+            selection-background-color: #dbeafe;
+            selection-color: #111827;
             outline: 0;
         }
         QAbstractItemView::item {
@@ -86,8 +87,8 @@ class RoundedComboBox(QComboBox):
         QAbstractItemView::item:selected,
         QAbstractItemView::item:selected:active,
         QAbstractItemView::item:selected:!active {
-            color: #ffffff;
-            background: #2563a8;
+            color: #111827;
+            background: #dbeafe;
         }
         QAbstractItemView::item:hover {
             color: #111827;
@@ -97,7 +98,16 @@ class RoundedComboBox(QComboBox):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.view().setStyleSheet(self.POPUP_STYLESHEET)
+        view = QListView(self)
+        view.setMouseTracking(True)
+        view.setUniformItemSizes(False)
+        view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        palette = view.palette()
+        palette.setColor(QPalette.Highlight, QColor("#dbeafe"))
+        palette.setColor(QPalette.HighlightedText, QColor("#111827"))
+        view.setPalette(palette)
+        view.setStyleSheet(self.POPUP_STYLESHEET)
+        self.setView(view)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
@@ -152,8 +162,8 @@ class MainWindow(QMainWindow):
             QComboBox QAbstractItemView {
                 color: #111827;
                 background: #ffffff;
-                selection-background-color: #2563a8;
-                selection-color: #ffffff;
+                selection-background-color: #dbeafe;
+                selection-color: #111827;
                 alternate-background-color: #ffffff;
                 outline: 0;
             }
@@ -165,8 +175,8 @@ class MainWindow(QMainWindow):
             QComboBox QAbstractItemView::item:selected,
             QComboBox QAbstractItemView::item:selected:active,
             QComboBox QAbstractItemView::item:selected:!active {
-                color: #ffffff;
-                background: #2563a8;
+                color: #111827;
+                background: #dbeafe;
             }
             QComboBox QAbstractItemView::item:hover {
                 color: #111827;
