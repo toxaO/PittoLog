@@ -243,7 +243,40 @@ class MainWindow(QMainWindow):
             }
             QFrame#ScanInputPanel {
                 background: #f7fff9;
-                border: 1px solid #b7d7c2;
+                border: 2px solid #b7d7c2;
+                border-radius: 8px;
+            }
+            QFrame#ScanInputPanel[scanState="item"] {
+                background: #f7fff9;
+                border-color: #16a34a;
+            }
+            QFrame#ScanInputPanel[scanState="department"] {
+                background: #f8fbff;
+                border-color: #2563eb;
+            }
+            QFrame#ScanInputPanel[scanState="loan"] {
+                background: #f8fbff;
+                border-color: #2563eb;
+            }
+            QFrame#ScanInputPanel[scanState="return"] {
+                background: #fffaf0;
+                border-color: #d97706;
+            }
+            QFrame#ScanInputPanel[scanState="confirm"] {
+                background: #f8fbff;
+                border-color: #2563eb;
+            }
+            QFrame#ScanInputPanel[scanState="done"] {
+                background: #f0fdf4;
+                border-color: #16a34a;
+            }
+            QFrame#ScanInputPanel[scanState="error"] {
+                background: #fef2f2;
+                border-color: #dc2626;
+            }
+            QFrame#ScanInputPanel[scanReady="false"] {
+                background: #fce7f3;
+                border-color: #db2777;
                 border-radius: 8px;
             }
             QFrame#ManualScanPanel QComboBox,
@@ -278,7 +311,7 @@ class MainWindow(QMainWindow):
                 background: #ecfdf3;
             }
             QFrame#Panel[scanReady="false"] {
-                background: #fdecec;
+                background: #fce7f3;
             }
             QFrame#Panel[scanState="item"] {
                 background: #ecfdf3;
@@ -302,10 +335,10 @@ class MainWindow(QMainWindow):
                 background: #f0fdf4;
             }
             QFrame#Panel[scanReady="false"][scanState="item"] {
-                background: #fff7ed;
+                background: #fce7f3;
             }
             QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="item"] {
-                border-color: #d97706;
+                border-color: #db2777;
             }
             QFrame#Panel[panelRole="scan"][scanState="item"] {
                 border-color: #16a34a;
@@ -325,6 +358,21 @@ class MainWindow(QMainWindow):
             QFrame#Panel[panelRole="scan"][scanState="error"] {
                 border-color: #dc2626;
             }
+            QFrame#Panel[scanReady="false"][scanState="department"],
+            QFrame#Panel[scanReady="false"][scanState="loan"],
+            QFrame#Panel[scanReady="false"][scanState="return"],
+            QFrame#Panel[scanReady="false"][scanState="confirm"],
+            QFrame#Panel[scanReady="false"][scanState="done"] {
+                background: #fce7f3;
+            }
+            QFrame#Panel[panelRole="scan"][scanReady="false"],
+            QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="department"],
+            QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="loan"],
+            QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="return"],
+            QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="confirm"],
+            QFrame#Panel[panelRole="scan"][scanReady="false"][scanState="done"] {
+                border-color: #db2777;
+            }
             QLineEdit#ScanInput[ready="true"] {
                 border: 2px solid #16a34a;
                 background: white;
@@ -333,8 +381,8 @@ class MainWindow(QMainWindow):
                 padding: 0px 8px;
             }
             QLineEdit#ScanInput[ready="false"] {
-                border: 2px solid #d97706;
-                background: #fffaf0;
+                border: 2px solid #db2777;
+                background: #fff5fb;
                 border-radius: 8px;
                 padding: 0px 8px;
             }
@@ -444,12 +492,7 @@ class MainWindow(QMainWindow):
         self.csv_output_dir = self.service.get_setting("csv_output_dir", fallback_output_dir)
         self.png_output_dir = self.service.get_setting("png_output_dir", fallback_output_dir)
         self.pdf_output_dir = self.service.get_setting("pdf_output_dir", fallback_output_dir)
-        self.default_item_active_filter = self.service.get_setting("default_item_active_filter", "active")
-        self.default_event_date_filter = self.service.get_setting("default_event_date_filter", "today")
-        if self.default_item_active_filter not in ("active", "", "inactive"):
-            self.default_item_active_filter = "active"
-        if self.default_event_date_filter not in ("today", "all"):
-            self.default_event_date_filter = "today"
+        self.default_item_active_filter = "active"
         self.countdown_remaining = 0
         self.countdown_timer = QTimer(self)
         self.countdown_timer.timeout.connect(self.update_countdown)
@@ -530,7 +573,10 @@ class MainWindow(QMainWindow):
         scan_layout.addWidget(self.scan_mode_title)
 
         input_panel = QFrame()
+        self.scan_input_panel = input_panel
         input_panel.setObjectName("ScanInputPanel")
+        input_panel.setProperty("scanReady", False)
+        input_panel.setProperty("scanState", self.current_scan_state())
         input_panel_layout = QVBoxLayout(input_panel)
         input_panel_layout.setContentsMargins(8, 6, 8, 6)
         input_panel_layout.setSpacing(4)
@@ -646,16 +692,21 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self.scan_input and event.type() in (QEvent.FocusIn, QEvent.FocusOut):
-            self.update_scan_ready_indicator()
+            QTimer.singleShot(0, self.update_scan_ready_indicator)
         if watched in self.scan_focus_widgets and event.type() == QEvent.MouseButtonPress:
             self.scan_input.setFocus()
         return super().eventFilter(watched, event)
 
     def update_scan_ready_indicator(self) -> None:
-        ready = self.root_tabs.currentIndex() == 0 and self.scan_input.hasFocus()
-        if not self.scan_message_locked:
+        operation_tab_active = self.root_tabs.currentIndex() == 0
+        ready = operation_tab_active and self.scan_input.hasFocus()
+        pending_workflow = self.has_pending_scan_workflow()
+        if pending_workflow:
+            self.status_label.setText(self.scan_message_html(ready=True) if ready else self.focus_required_message_html())
+            self.status_label.setStyleSheet("color: #111827;" if ready else "color: #9d174d;")
+        elif not self.scan_message_locked:
             self.status_label.setText(self.scan_message_html(ready=ready))
-            self.status_label.setStyleSheet("color: #111827;" if ready else "color: #92400e;")
+            self.status_label.setStyleSheet("color: #111827;" if ready else "color: #9d174d;")
         self.scan_input.setProperty("ready", ready)
         if self.scan_frame is not None:
             self.scan_frame.setProperty("scanReady", ready)
@@ -663,7 +714,14 @@ class MainWindow(QMainWindow):
             self.scan_frame.setProperty("scanState", state)
             self.update_scan_mode_title(state)
             repolish_widget(self.scan_frame)
+            if self.scan_input_panel is not None:
+                self.scan_input_panel.setProperty("scanReady", ready)
+                self.scan_input_panel.setProperty("scanState", state)
+                repolish_widget(self.scan_input_panel)
         repolish_widget(self.scan_input)
+
+    def has_pending_scan_workflow(self) -> bool:
+        return bool(self.workflow.item_barcode or self.workflow.department_barcode or self.workflow.action_mode)
 
     def current_scan_state(self) -> str:
         if self.workflow.action_mode == "return":
@@ -737,6 +795,28 @@ class MainWindow(QMainWindow):
         if not ready:
             return "現在スキャンできません。<br>スキャンを開始するにはこのエリアを<br>クリックしてください。"
         return f"貸出・返却する{strong('物品バーコード')}を<br>スキャンしてください。"
+
+    def focus_required_message_html(self) -> str:
+        item_name, department_name = self.current_workflow_names()
+        prompt = "スキャン前にこのスキャンフレームをクリックして<br>バーコード入力欄にフォーカスを戻してください。"
+        if self.workflow.action_mode == "return":
+            return (
+                f"{detail_block(('返却物品', item_name or '-'), ('返却元', department_name or '-'))}"
+                f"{detail_spacer()}"
+                f"{prompt}"
+            )
+        if self.workflow.item_barcode and self.workflow.department_barcode:
+            return (
+                f"{detail_block(('貸出物品', item_name or '-'), ('貸出先', department_name or '-'))}"
+                f"{detail_spacer()}"
+                f"{prompt}"
+            )
+        if self.workflow.item_barcode:
+            return (
+                "貸出先を登録します。<br>"
+                f"{prompt}"
+            )
+        return prompt
 
     def completion_message_html(self, operation: str, item_name: str, department_name: str) -> str:
         if operation == "返却":
@@ -913,7 +993,7 @@ class MainWindow(QMainWindow):
         self.item_active_filter.addItem("有効", "active")
         self.item_active_filter.addItem("すべて", "")
         self.item_active_filter.addItem("無効", "inactive")
-        set_combo_current_data(self.item_active_filter, self.default_item_active_filter)
+        set_combo_current_data(self.item_active_filter, "active")
         self.item_active_filter.currentIndexChanged.connect(self.refresh_items)
         self.item_status_filter.addItem("すべて", "")
         self.item_status_filter.addItem("在庫", "在庫")
@@ -961,13 +1041,13 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(self.item_category_filter, 0, 2)
         filter_layout.addWidget(QLabel("有効/無効"), 0, 3)
         filter_layout.addWidget(self.item_active_filter, 0, 4)
-        filter_layout.addWidget(clear_button, 0, 5)
-        filter_layout.addWidget(QLabel("状態"), 1, 1)
-        filter_layout.addWidget(self.item_status_filter, 1, 2)
-        filter_layout.addWidget(QLabel("貸出先"), 1, 3)
-        filter_layout.addWidget(self.item_loan_department_filter, 1, 4)
+        filter_layout.addWidget(QLabel("状態"), 0, 5)
+        filter_layout.addWidget(self.item_status_filter, 0, 6)
+        filter_layout.addWidget(QLabel("貸出先"), 0, 7)
+        filter_layout.addWidget(self.item_loan_department_filter, 0, 8)
+        filter_layout.addWidget(clear_button, 0, 9)
         filter_layout.setColumnStretch(2, 1)
-        filter_layout.setColumnStretch(4, 1)
+        filter_layout.setColumnStretch(8, 1)
 
         sort_group = filter_group()
         sort_layout = QGridLayout(sort_group)
@@ -1030,28 +1110,59 @@ class MainWindow(QMainWindow):
         self.event_sort_order.addItem("昇順", False)
         self.event_sort_order.currentIndexChanged.connect(self.refresh_events)
         today = QDate.currentDate()
-        use_event_date_filter = self.default_event_date_filter == "today"
-        self.event_date_filter.setChecked(use_event_date_filter)
+        self.event_date_filter.setChecked(True)
         for date_edit in (self.event_date_from, self.event_date_to):
             date_edit.setCalendarPopup(True)
             date_edit.setDisplayFormat("yyyy-MM-dd")
             date_edit.setDate(today)
             date_edit.dateChanged.connect(lambda _date: self.refresh_events())
-            date_edit.setEnabled(use_event_date_filter)
+            date_edit.setEnabled(True)
         self.event_date_filter.toggled.connect(self.event_date_from.setEnabled)
         self.event_date_filter.toggled.connect(self.event_date_to.setEnabled)
         self.event_date_filter.toggled.connect(lambda _checked: self.refresh_events())
+        today_button = QPushButton("本日")
+        today_button.clicked.connect(lambda: self.set_event_date_preset(0, 0))
+        yesterday_button = QPushButton("昨日")
+        yesterday_button.clicked.connect(lambda: self.set_event_date_preset(1, 1))
+        week_button = QPushButton("直近1週間")
+        week_button.clicked.connect(lambda: self.set_event_date_preset(6, 0))
+        month_button = QPushButton("直近30日間")
+        month_button.clicked.connect(lambda: self.set_event_date_preset(29, 0))
+        self.refresh_department_filters()
+        self.apply_default_event_query(refresh=False)
 
         search_button = QPushButton("検索")
         search_button.clicked.connect(self.refresh_events)
-        clear_button = QPushButton("初期化")
+        clear_button = QPushButton("クエリ条件クリア")
         clear_button.clicked.connect(self.clear_event_query)
+        save_default_button = QPushButton("デフォルト保存")
+        save_default_button.clicked.connect(self.save_default_event_query)
+        restore_default_button = QPushButton("デフォルトに戻す")
+        restore_default_button.clicked.connect(lambda: self.apply_default_event_query())
         export_button = QPushButton("CSV出力")
         export_button.clicked.connect(self.export_events)
-        widget.layout().insertWidget(0, self._events_filter_panel(search_button, clear_button, export_button))
+        widget.layout().insertWidget(
+            0,
+            self._events_filter_panel(
+                search_button,
+                clear_button,
+                save_default_button,
+                restore_default_button,
+                export_button,
+                [today_button, yesterday_button, week_button, month_button],
+            ),
+        )
         return widget
 
-    def _events_filter_panel(self, search_button: QPushButton, clear_button: QPushButton, export_button: QPushButton) -> QWidget:
+    def _events_filter_panel(
+        self,
+        search_button: QPushButton,
+        clear_button: QPushButton,
+        save_default_button: QPushButton,
+        restore_default_button: QPushButton,
+        export_button: QPushButton,
+        date_preset_buttons: list[QPushButton],
+    ) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1076,12 +1187,13 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(self.event_type_filter, 0, 2)
         filter_layout.addWidget(QLabel("部署"), 0, 3)
         filter_layout.addWidget(self.event_department_filter, 0, 4)
-        filter_layout.addWidget(clear_button, 0, 5)
         filter_layout.addWidget(self.event_date_filter, 1, 1)
         filter_layout.addWidget(self.event_date_from, 1, 2)
         filter_layout.addWidget(QLabel("から"), 1, 3)
         filter_layout.addWidget(self.event_date_to, 1, 4)
         filter_layout.addWidget(QLabel("まで"), 1, 5)
+        for column, button in enumerate(date_preset_buttons, start=6):
+            filter_layout.addWidget(button, 1, column)
         filter_layout.setColumnStretch(2, 1)
         filter_layout.setColumnStretch(4, 1)
 
@@ -1092,7 +1204,10 @@ class MainWindow(QMainWindow):
         sort_layout.addWidget(QLabel("並び順"), 0, 0)
         sort_layout.addWidget(self.event_sort_field, 0, 1)
         sort_layout.addWidget(self.event_sort_order, 0, 2)
-        sort_layout.addWidget(export_button, 0, 3)
+        sort_layout.addWidget(clear_button, 0, 3)
+        sort_layout.addWidget(restore_default_button, 0, 4)
+        sort_layout.addWidget(save_default_button, 0, 5)
+        sort_layout.addWidget(export_button, 0, 6)
 
         layout.addWidget(search_group)
         layout.addWidget(filter_group_frame)
@@ -1113,15 +1228,6 @@ class MainWindow(QMainWindow):
         self.cancel_clear_input = QLineEdit(str(self.cancel_clear_seconds))
         self.cancel_clear_input.setValidator(QIntValidator(3, 600, self))
         self.cancel_clear_input.setMaximumWidth(120)
-        self.default_item_active_filter_input = RoundedComboBox()
-        self.default_item_active_filter_input.addItem("有効", "active")
-        self.default_item_active_filter_input.addItem("すべて", "")
-        self.default_item_active_filter_input.addItem("無効", "inactive")
-        set_combo_current_data(self.default_item_active_filter_input, self.default_item_active_filter)
-        self.default_event_date_filter_input = RoundedComboBox()
-        self.default_event_date_filter_input.addItem("当日分", "today")
-        self.default_event_date_filter_input.addItem("全期間", "all")
-        set_combo_current_data(self.default_event_date_filter_input, self.default_event_date_filter)
         csv_output_layout = self.output_dir_row(self.csv_output_dir_input)
         png_output_layout = self.output_dir_row(self.png_output_dir_input)
         pdf_output_layout = self.output_dir_row(self.pdf_output_dir_input)
@@ -1134,8 +1240,6 @@ class MainWindow(QMainWindow):
         layout.addRow("読み取り中のリセット時間（秒）", self.pending_reset_input)
         layout.addRow("読み取り結果を表示する時間（秒）", self.result_clear_input)
         layout.addRow("キャンセル結果を表示する時間（秒）", self.cancel_clear_input)
-        layout.addRow("物品一覧の初期表示", self.default_item_active_filter_input)
-        layout.addRow("履歴の初期期間", self.default_event_date_filter_input)
         layout.addRow(save_button)
         return widget
 
@@ -1380,16 +1484,12 @@ class MainWindow(QMainWindow):
         self.csv_output_dir = str(csv_output_dir)
         self.png_output_dir = str(png_output_dir)
         self.pdf_output_dir = str(pdf_output_dir)
-        self.default_item_active_filter = str(self.default_item_active_filter_input.currentData() or "")
-        self.default_event_date_filter = str(self.default_event_date_filter_input.currentData() or "today")
         self.csv_output_dir_input.setText(self.csv_output_dir)
         self.png_output_dir_input.setText(self.png_output_dir)
         self.pdf_output_dir_input.setText(self.pdf_output_dir)
         self.service.set_setting("csv_output_dir", self.csv_output_dir)
         self.service.set_setting("png_output_dir", self.png_output_dir)
         self.service.set_setting("pdf_output_dir", self.pdf_output_dir)
-        self.service.set_setting("default_item_active_filter", self.default_item_active_filter)
-        self.service.set_setting("default_event_date_filter", self.default_event_date_filter)
         self.service.set_setting_int("pending_reset_seconds", self.pending_reset_seconds)
         self.service.set_setting_int("result_clear_seconds", self.result_clear_seconds)
         self.service.set_setting_int("cancel_clear_seconds", self.cancel_clear_seconds)
@@ -1925,6 +2025,41 @@ class MainWindow(QMainWindow):
     def refresh_events(self) -> None:
         self._fill_table(self.events_table, self.event_rows(), EVENT_TABLE_HEADERS)
 
+    def set_event_date_preset(self, start_days_ago: int, end_days_ago: int) -> None:
+        today = QDate.currentDate()
+        self.event_date_filter.setChecked(True)
+        self.event_date_from.setDate(today.addDays(-start_days_ago))
+        self.event_date_to.setDate(today.addDays(-end_days_ago))
+        self.refresh_events()
+
+    def save_default_event_query(self) -> None:
+        self.service.set_setting("default_event_query", self.event_query_input.text())
+        self.service.set_setting("default_event_type", str(self.event_type_filter.currentData() or ""))
+        self.service.set_setting("default_event_department_id", "" if self.event_department_filter.currentData() is None else str(self.event_department_filter.currentData()))
+        self.service.set_setting("default_event_sort_by", str(self.event_sort_field.currentData() or "created_at"))
+        self.service.set_setting("default_event_sort_desc", "1" if bool(self.event_sort_order.currentData()) else "0")
+        self.service.set_setting("default_event_date_enabled", "1" if self.event_date_filter.isChecked() else "0")
+        self.service.set_setting("default_event_date_from", self.event_date_from.date().toString("yyyy-MM-dd"))
+        self.service.set_setting("default_event_date_to", self.event_date_to.date().toString("yyyy-MM-dd"))
+        QMessageBox.information(self, "デフォルト保存", "現在の履歴クエリ条件を保存しました。")
+
+    def apply_default_event_query(self, refresh: bool = True) -> None:
+        today = QDate.currentDate()
+        self.event_query_input.setText(self.service.get_setting("default_event_query", ""))
+        set_combo_current_data(self.event_type_filter, self.service.get_setting("default_event_type", ""))
+        department_id_text = self.service.get_setting("default_event_department_id", "")
+        set_combo_current_data(self.event_department_filter, int(department_id_text) if department_id_text.isdigit() else None)
+        set_combo_current_data(self.event_sort_field, self.service.get_setting("default_event_sort_by", "created_at"))
+        set_combo_current_data(self.event_sort_order, self.service.get_setting("default_event_sort_desc", "1") != "0")
+        date_enabled = self.service.get_setting("default_event_date_enabled", "1") != "0"
+        self.event_date_filter.setChecked(date_enabled)
+        date_from = QDate.fromString(self.service.get_setting("default_event_date_from", today.toString("yyyy-MM-dd")), "yyyy-MM-dd")
+        date_to = QDate.fromString(self.service.get_setting("default_event_date_to", today.toString("yyyy-MM-dd")), "yyyy-MM-dd")
+        self.event_date_from.setDate(date_from if date_from.isValid() else today)
+        self.event_date_to.setDate(date_to if date_to.isValid() else today)
+        if refresh:
+            self.refresh_events()
+
     def clear_event_query(self) -> None:
         self.event_query_input.clear()
         self.event_type_filter.setCurrentIndex(0)
@@ -1934,7 +2069,7 @@ class MainWindow(QMainWindow):
         today = QDate.currentDate()
         self.event_date_from.setDate(today)
         self.event_date_to.setDate(today)
-        self.event_date_filter.setChecked(self.default_event_date_filter == "today")
+        self.event_date_filter.setChecked(False)
         self.refresh_events()
 
     def refresh_item_category_filter(self) -> None:
