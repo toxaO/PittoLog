@@ -62,6 +62,12 @@ TABLE_HEADER_LABELS = {
     "created_at": "日時",
 }
 
+ITEM_TABLE_HEADERS = ["id", "barcode", "name", "category", "active_status", "status", "loan_department"]
+CATEGORY_TABLE_HEADERS = ["id", "name"]
+DEPARTMENT_TABLE_HEADERS = ["id", "barcode", "name"]
+OPEN_LOAN_TABLE_HEADERS = ["loaned_at", "item_name", "category", "item_barcode", "department_name"]
+EVENT_TABLE_HEADERS = ["created_at", "event_type", "item_name", "department_name", "note"]
+
 
 class RoundedComboBox(QComboBox):
     def paintEvent(self, event) -> None:
@@ -1633,8 +1639,8 @@ class MainWindow(QMainWindow):
         self.refresh_department_filters()
         self.refresh_barcode_targets()
         self.refresh_items()
-        self._fill_table(self.categories_table, self.service.list_categories())
-        self._fill_table(self.departments_table, self.service.list_departments())
+        self._fill_table(self.categories_table, self.service.list_categories(), CATEGORY_TABLE_HEADERS)
+        self._fill_table(self.departments_table, self.service.list_departments(), DEPARTMENT_TABLE_HEADERS)
         self.refresh_open_loans()
         self.refresh_events()
         if self.root_tabs.currentIndex() == 0:
@@ -1642,7 +1648,7 @@ class MainWindow(QMainWindow):
         self.update_scan_ready_indicator()
 
     def refresh_items(self) -> None:
-        self._fill_table(self.items_table, self.current_item_rows())
+        self._fill_table(self.items_table, self.current_item_rows(), ITEM_TABLE_HEADERS)
 
     def current_item_rows(self):
         return self.service.list_items(
@@ -1673,7 +1679,7 @@ class MainWindow(QMainWindow):
         )
 
     def refresh_open_loans(self) -> None:
-        self._fill_table(self.loans_table, self.open_loan_rows())
+        self._fill_table(self.loans_table, self.open_loan_rows(), OPEN_LOAN_TABLE_HEADERS)
         self.adjust_open_loan_columns()
 
     def reset_open_loan_filters(self) -> None:
@@ -1696,7 +1702,7 @@ class MainWindow(QMainWindow):
         )
 
     def refresh_events(self) -> None:
-        self._fill_table(self.events_table, self.event_rows())
+        self._fill_table(self.events_table, self.event_rows(), EVENT_TABLE_HEADERS)
 
     def clear_event_query(self) -> None:
         self.event_query_input.clear()
@@ -1811,13 +1817,9 @@ class MainWindow(QMainWindow):
         selected = table.selectionModel().selectedRows()
         return [int(table.item(index.row(), 0).text()) for index in selected]
 
-    def _fill_table(self, table: QTableWidget, rows) -> None:
+    def _fill_table(self, table: QTableWidget, rows, default_headers: list[str] | None = None) -> None:
         table.clear()
-        if not rows:
-            table.setRowCount(0)
-            table.setColumnCount(0)
-            return
-        headers = list(rows[0].keys())
+        headers = list(rows[0].keys()) if rows else list(default_headers or [])
         table.setColumnCount(len(headers))
         table.setRowCount(len(rows))
         table.setHorizontalHeaderLabels([TABLE_HEADER_LABELS.get(header, header) for header in headers])
@@ -1825,6 +1827,8 @@ class MainWindow(QMainWindow):
             table.setColumnHidden(headers.index("id"), True)
         if "note" in headers:
             table.setColumnHidden(headers.index("note"), True)
+        if not rows:
+            return
         for row_index, row in enumerate(rows):
             for column_index, header in enumerate(headers):
                 value = row[header]
