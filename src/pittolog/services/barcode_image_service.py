@@ -166,7 +166,7 @@ def render_barcode_sheet(
     title_font = load_font(58)
     label_font = load_font(36)
     value_font = load_font(30)
-    draw.text((margin, margin), "PittoLog 動作テスト用バーコード", fill="black", font=title_font)
+    draw.text((margin, margin), "PittoLog用バーコード", fill="black", font=title_font)
     draw.text((margin, margin + 78), "A4 / Code128 / Enter付き / 印刷倍率 100% 推奨", fill="black", font=value_font)
     if page_count > 1:
         page_text = f"{page_number} / {page_count}"
