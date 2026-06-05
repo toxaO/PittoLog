@@ -70,6 +70,35 @@ EVENT_TABLE_HEADERS = ["created_at", "event_type", "item_name", "department_name
 
 
 class RoundedComboBox(QComboBox):
+    POPUP_STYLESHEET = """
+        QAbstractItemView {
+            color: #111827;
+            background: #ffffff;
+            selection-background-color: #2563a8;
+            selection-color: #ffffff;
+            outline: 0;
+        }
+        QAbstractItemView::item {
+            color: #111827;
+            background: #ffffff;
+            min-height: 26px;
+        }
+        QAbstractItemView::item:selected,
+        QAbstractItemView::item:selected:active,
+        QAbstractItemView::item:selected:!active {
+            color: #ffffff;
+            background: #2563a8;
+        }
+        QAbstractItemView::item:hover {
+            color: #111827;
+            background: #dbeafe;
+        }
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.view().setStyleSheet(self.POPUP_STYLESHEET)
+
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         painter = QPainter(self)
@@ -89,8 +118,8 @@ class MainWindow(QMainWindow):
         self.workflow = BarcodeWorkflow(service)
         self.db_path = db_path
         self.setWindowTitle(f"PittoLog {__version__}")
-        self.resize(1120, 680)
-        self.setMinimumSize(980, 580)
+        self.resize(1180, 680)
+        self.setMinimumSize(1040, 580)
         self.setStyleSheet(
             """
             QWidget {
@@ -125,6 +154,23 @@ class MainWindow(QMainWindow):
                 background: #ffffff;
                 selection-background-color: #2563a8;
                 selection-color: #ffffff;
+                alternate-background-color: #ffffff;
+                outline: 0;
+            }
+            QComboBox QAbstractItemView::item {
+                min-height: 26px;
+                color: #111827;
+                background: #ffffff;
+            }
+            QComboBox QAbstractItemView::item:selected,
+            QComboBox QAbstractItemView::item:selected:active,
+            QComboBox QAbstractItemView::item:selected:!active {
+                color: #ffffff;
+                background: #2563a8;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                color: #111827;
+                background: #dbeafe;
             }
             QPushButton {
                 min-height: 30px;
@@ -179,6 +225,22 @@ class MainWindow(QMainWindow):
                 background: #fef2f2;
                 border: 2px solid #dc2626;
                 border-radius: 6px;
+            }
+            QFrame#ManualScanPanel {
+                background: transparent;
+                border: none;
+                border-radius: 0px;
+            }
+            QFrame#ScanInputPanel {
+                background: #f7fff9;
+                border: 1px solid #b7d7c2;
+                border-radius: 8px;
+            }
+            QFrame#ManualScanPanel QComboBox,
+            QFrame#ManualScanPanel QPushButton {
+                min-height: 24px;
+                font-size: 13px;
+                padding: 1px 6px;
             }
             QFrame#FilterGroup {
                 background: #f7fbff;
@@ -254,19 +316,23 @@ class MainWindow(QMainWindow):
                 border-color: #dc2626;
             }
             QLineEdit#ScanInput[ready="true"] {
-                border: 3px solid #16a34a;
+                border: 2px solid #16a34a;
                 background: white;
                 font-weight: 700;
                 border-radius: 8px;
+                padding: 0px 8px;
             }
             QLineEdit#ScanInput[ready="false"] {
                 border: 2px solid #d97706;
                 background: #fffaf0;
                 border-radius: 8px;
+                padding: 0px 8px;
             }
             QLabel#ScanMessage {
                 font-size: 18px;
                 font-weight: 600;
+                padding-top: 5px;
+                padding-bottom: 5px;
             }
             QLabel#ScanDetail {
                 font-size: 15px;
@@ -294,6 +360,11 @@ class MainWindow(QMainWindow):
                 font-size: 23px;
                 font-weight: 800;
                 color: #111827;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                padding-left: 0px;
+                padding-right: 0px;
+                margin: 0px;
             }
             QLabel#ScanModeTitle[scanState="item"] {
                 color: #166534;
@@ -321,6 +392,7 @@ class MainWindow(QMainWindow):
 
         self.scan_input = QLineEdit()
         self.scan_input.setObjectName("ScanInput")
+        self.scan_input.setFixedHeight(38)
         self.scan_input.returnPressed.connect(self.handle_scan)
         self.scan_input.setPlaceholderText("バーコード入力欄")
         self.scan_input.installEventFilter(self)
@@ -332,8 +404,8 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("ScanMessage")
         self.status_label.setTextFormat(Qt.RichText)
         self.status_label.setWordWrap(True)
-        self.status_label.setMinimumHeight(118)
-        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.status_label.setMinimumHeight(106)
+        self.status_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.status_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.current_item_name_label = QLabel("")
         self.current_item_name_label.setObjectName("CurrentItemName")
@@ -357,6 +429,7 @@ class MainWindow(QMainWindow):
         self.scan_message_locked = False
         self.pending_reset_seconds = self.service.get_setting_int("pending_reset_seconds", 30)
         self.result_clear_seconds = self.service.get_setting_int("result_clear_seconds", 30)
+        self.cancel_clear_seconds = self.service.get_setting_int("cancel_clear_seconds", self.result_clear_seconds)
         fallback_output_dir = self.service.get_setting("output_dir", str(Path.cwd() / "exports"))
         self.csv_output_dir = self.service.get_setting("csv_output_dir", fallback_output_dir)
         self.png_output_dir = self.service.get_setting("png_output_dir", fallback_output_dir)
@@ -372,7 +445,7 @@ class MainWindow(QMainWindow):
         self.countdown_timer.timeout.connect(self.update_countdown)
         self.countdown_label = QLabel("")
         self.countdown_label.setObjectName("ScanDetail")
-        self.countdown_label.setMinimumHeight(20)
+        self.countdown_label.setMinimumHeight(18)
 
         self.items_table = QTableWidget()
         self.categories_table = QTableWidget()
@@ -381,6 +454,13 @@ class MainWindow(QMainWindow):
         self.events_table = QTableWidget()
         self.barcode_target_combo = RoundedComboBox()
         self.barcode_category_combo = RoundedComboBox()
+        self.manual_scan_kind = RoundedComboBox()
+        self.manual_scan_category_combo = RoundedComboBox()
+        self.manual_scan_target_combo = RoundedComboBox()
+        self.manual_scan_category_label = QLabel("カテゴリ")
+        self.manual_scan_panel: QFrame | None = None
+        self.manual_scan_message_gap: QWidget | None = None
+        self.manual_scan_toggle_button: QPushButton | None = None
         self.loan_query_input = QLineEdit()
         self.loan_category_filter = RoundedComboBox()
         self.loan_department_filter = RoundedComboBox()
@@ -422,7 +502,7 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
 
         scan_frame = QFrame()
         self.scan_frame = scan_frame
@@ -432,27 +512,46 @@ class MainWindow(QMainWindow):
         scan_frame.setProperty("scanReady", False)
         scan_frame.setMinimumHeight(270)
         scan_layout = QVBoxLayout(scan_frame)
-        scan_layout.setContentsMargins(12, 8, 12, 8)
-        scan_layout.setSpacing(8)
+        scan_layout.setContentsMargins(12, 4, 12, 6)
+        scan_layout.setSpacing(0)
         self.scan_mode_title = QLabel("物品スキャン")
         self.scan_mode_title.setObjectName("ScanModeTitle")
+        self.scan_mode_title.setFixedHeight(48)
         scan_layout.addWidget(self.scan_mode_title)
 
-        input_row = QHBoxLayout()
+        input_panel = QFrame()
+        input_panel.setObjectName("ScanInputPanel")
+        input_panel_layout = QVBoxLayout(input_panel)
+        input_panel_layout.setContentsMargins(8, 6, 8, 6)
+        input_panel_layout.setSpacing(4)
+
+        input_row_widget = QWidget()
+        input_row_widget.setFixedHeight(40)
+        input_row = QHBoxLayout(input_row_widget)
+        input_row.setContentsMargins(0, 0, 0, 0)
+        input_row.setAlignment(Qt.AlignVCenter)
         input_row.setSpacing(8)
         self.scan_input.setMaximumWidth(470)
         input_row.addWidget(self.scan_input, 1)
-        confirm_button = QPushButton("確認")
-        confirm_button.clicked.connect(self.confirm_scan)
         cancel_button = QPushButton("キャンセル")
         cancel_button.clicked.connect(self.cancel_scan)
-        input_row.addWidget(confirm_button)
         input_row.addWidget(cancel_button)
+        manual_toggle_button = QPushButton("+")
+        self.manual_scan_toggle_button = manual_toggle_button
+        manual_toggle_button.setFixedSize(32, 30)
+        manual_toggle_button.clicked.connect(self.toggle_manual_scan_panel)
+        input_row.addWidget(manual_toggle_button, 0, Qt.AlignVCenter)
         input_row.addStretch()
-        scan_layout.addLayout(input_row)
-        scan_layout.addSpacing(4)
+        input_panel_layout.addWidget(input_row_widget)
+        input_panel_layout.addWidget(self._build_manual_scan_panel())
+        scan_layout.addWidget(input_panel)
+        self.manual_scan_message_gap = QWidget()
+        self.manual_scan_message_gap.setFixedHeight(3)
+        self.manual_scan_message_gap.setVisible(False)
+        scan_layout.addWidget(self.manual_scan_message_gap)
         scan_layout.addWidget(self.status_label)
         scan_layout.addWidget(self.current_item_name_label)
+        scan_layout.addStretch()
         scan_layout.addWidget(self.countdown_label)
         for focus_widget in (scan_frame, self.scan_mode_title, self.status_label, self.countdown_label):
             focus_widget.installEventFilter(self)
@@ -493,6 +592,42 @@ class MainWindow(QMainWindow):
         layout.addWidget(latest_frame)
         layout.addStretch()
         return panel
+
+    def _build_manual_scan_panel(self) -> QFrame:
+        frame = QFrame()
+        self.manual_scan_panel = frame
+        frame.setObjectName("ManualScanPanel")
+        frame.setVisible(False)
+        frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout = QGridLayout(frame)
+        layout.setContentsMargins(8, 0, 8, 3)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(3)
+
+        self.manual_scan_kind.addItems(["ITEM", "DEPT", "ACTION"])
+        self.manual_scan_kind.currentIndexChanged.connect(self.refresh_manual_scan_targets)
+        self.manual_scan_category_combo.currentIndexChanged.connect(self.refresh_manual_scan_targets)
+        self.manual_scan_kind.setMinimumWidth(110)
+        self.manual_scan_category_combo.setMinimumWidth(150)
+        self.manual_scan_target_combo.setMinimumWidth(220)
+        for combo in (self.manual_scan_kind, self.manual_scan_category_combo, self.manual_scan_target_combo):
+            combo.setMaximumHeight(28)
+
+        execute_button = QPushButton("実行")
+        execute_button.clicked.connect(self.execute_manual_scan)
+        execute_button.setMaximumSize(70, 28)
+
+        layout.addWidget(QLabel("種類"), 0, 0)
+        layout.addWidget(self.manual_scan_kind, 0, 1)
+        layout.addWidget(self.manual_scan_category_label, 0, 2)
+        layout.addWidget(self.manual_scan_category_combo, 0, 3)
+        layout.addWidget(QLabel("対象"), 1, 0)
+        layout.addWidget(self.manual_scan_target_combo, 1, 1, 1, 3)
+        layout.addWidget(execute_button, 1, 4)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 0)
+        layout.setColumnStretch(3, 1)
+        return frame
 
     def _build_root_tabs(self) -> QTabWidget:
         self.root_tabs.addTab(self._operation_tab(), "貸出・返却")
@@ -691,11 +826,11 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(5)
 
         search_group = filter_group()
         search_layout = QGridLayout(search_group)
-        search_layout.setContentsMargins(12, 10, 12, 10)
+        search_layout.setContentsMargins(12, 5, 12, 5)
         search_layout.setHorizontalSpacing(8)
         search_layout.addWidget(QLabel("検索"), 0, 0)
         search_layout.addWidget(self.loan_query_input, 0, 1)
@@ -704,7 +839,7 @@ class MainWindow(QMainWindow):
 
         filter_box = filter_group()
         filter_layout = QGridLayout(filter_box)
-        filter_layout.setContentsMargins(12, 10, 12, 10)
+        filter_layout.setContentsMargins(12, 5, 12, 5)
         filter_layout.setHorizontalSpacing(8)
         filter_layout.addWidget(QLabel("絞り込み"), 0, 0)
         filter_layout.addWidget(QLabel("カテゴリ"), 0, 1)
@@ -717,7 +852,7 @@ class MainWindow(QMainWindow):
 
         sort_box = filter_group()
         sort_layout = QGridLayout(sort_box)
-        sort_layout.setContentsMargins(12, 10, 12, 10)
+        sort_layout.setContentsMargins(12, 5, 12, 5)
         sort_layout.setHorizontalSpacing(8)
         sort_layout.addWidget(QLabel("並び順"), 0, 0)
         sort_layout.addWidget(self.loan_sort_field, 0, 1)
@@ -795,11 +930,11 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(5)
 
         search_group = filter_group()
         search_layout = QGridLayout(search_group)
-        search_layout.setContentsMargins(12, 10, 12, 10)
+        search_layout.setContentsMargins(12, 5, 12, 5)
         search_layout.setHorizontalSpacing(8)
         search_layout.addWidget(QLabel("検索"), 0, 0)
         search_layout.addWidget(self.item_query_input, 0, 1)
@@ -808,9 +943,9 @@ class MainWindow(QMainWindow):
 
         filter_group_frame = filter_group()
         filter_layout = QGridLayout(filter_group_frame)
-        filter_layout.setContentsMargins(12, 10, 12, 10)
+        filter_layout.setContentsMargins(12, 5, 12, 5)
         filter_layout.setHorizontalSpacing(8)
-        filter_layout.setVerticalSpacing(8)
+        filter_layout.setVerticalSpacing(3)
         filter_layout.addWidget(QLabel("絞り込み"), 0, 0)
         filter_layout.addWidget(QLabel("カテゴリ"), 0, 1)
         filter_layout.addWidget(self.item_category_filter, 0, 2)
@@ -826,7 +961,7 @@ class MainWindow(QMainWindow):
 
         sort_group = filter_group()
         sort_layout = QGridLayout(sort_group)
-        sort_layout.setContentsMargins(12, 10, 12, 10)
+        sort_layout.setContentsMargins(12, 5, 12, 5)
         sort_layout.setHorizontalSpacing(8)
         sort_layout.addWidget(QLabel("並び順"), 0, 0)
         sort_layout.addWidget(self.item_sort_field, 0, 1)
@@ -910,11 +1045,11 @@ class MainWindow(QMainWindow):
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(5)
 
         search_group = filter_group()
         search_layout = QGridLayout(search_group)
-        search_layout.setContentsMargins(12, 10, 12, 10)
+        search_layout.setContentsMargins(12, 5, 12, 5)
         search_layout.setHorizontalSpacing(8)
         search_layout.addWidget(QLabel("検索"), 0, 0)
         search_layout.addWidget(self.event_query_input, 0, 1)
@@ -923,9 +1058,9 @@ class MainWindow(QMainWindow):
 
         filter_group_frame = filter_group()
         filter_layout = QGridLayout(filter_group_frame)
-        filter_layout.setContentsMargins(12, 10, 12, 10)
+        filter_layout.setContentsMargins(12, 5, 12, 5)
         filter_layout.setHorizontalSpacing(8)
-        filter_layout.setVerticalSpacing(8)
+        filter_layout.setVerticalSpacing(3)
         filter_layout.addWidget(QLabel("絞り込み"), 0, 0)
         filter_layout.addWidget(QLabel("操作"), 0, 1)
         filter_layout.addWidget(self.event_type_filter, 0, 2)
@@ -942,7 +1077,7 @@ class MainWindow(QMainWindow):
 
         sort_group = filter_group()
         sort_layout = QGridLayout(sort_group)
-        sort_layout.setContentsMargins(12, 10, 12, 10)
+        sort_layout.setContentsMargins(12, 5, 12, 5)
         sort_layout.setHorizontalSpacing(8)
         sort_layout.addWidget(QLabel("並び順"), 0, 0)
         sort_layout.addWidget(self.event_sort_field, 0, 1)
@@ -958,13 +1093,16 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QFormLayout(widget)
         layout.setContentsMargins(18, 18, 18, 18)
-        layout.setVerticalSpacing(12)
+        layout.setVerticalSpacing(8)
         self.pending_reset_input = QLineEdit(str(self.pending_reset_seconds))
         self.pending_reset_input.setValidator(QIntValidator(5, 600, self))
         self.pending_reset_input.setMaximumWidth(120)
         self.result_clear_input = QLineEdit(str(self.result_clear_seconds))
         self.result_clear_input.setValidator(QIntValidator(10, 1800, self))
         self.result_clear_input.setMaximumWidth(120)
+        self.cancel_clear_input = QLineEdit(str(self.cancel_clear_seconds))
+        self.cancel_clear_input.setValidator(QIntValidator(3, 600, self))
+        self.cancel_clear_input.setMaximumWidth(120)
         self.default_item_active_filter_input = RoundedComboBox()
         self.default_item_active_filter_input.addItem("有効", "active")
         self.default_item_active_filter_input.addItem("すべて", "")
@@ -985,6 +1123,7 @@ class MainWindow(QMainWindow):
         layout.addRow("PDF出力先フォルダ", pdf_output_layout)
         layout.addRow("読み取り中のリセット時間（秒）", self.pending_reset_input)
         layout.addRow("読み取り結果を表示する時間（秒）", self.result_clear_input)
+        layout.addRow("キャンセル結果を表示する時間（秒）", self.cancel_clear_input)
         layout.addRow("物品一覧の初期表示", self.default_item_active_filter_input)
         layout.addRow("履歴の初期期間", self.default_event_date_filter_input)
         layout.addRow(save_button)
@@ -1186,19 +1325,23 @@ class MainWindow(QMainWindow):
         self.set_scan_state(self.current_scan_state() if self.workflow.item_barcode or self.workflow.department_barcode else ("done" if result.ok else self.current_scan_state()))
         if self.workflow.item_barcode or self.workflow.department_barcode:
             self.schedule_pending_scan_reset()
+        elif result.ok and result.message == "入力をキャンセルしました。":
+            self.schedule_cancel_clear()
         else:
             self.schedule_result_clear()
-
-    def confirm_scan(self) -> None:
-        self.scan_input.setText("ACTION:001")
-        self.handle_scan()
+        if self.manual_scan_panel is not None and self.manual_scan_panel.isVisible():
+            self.set_manual_scan_kind_for_current_mode()
+            self.refresh_manual_scan_targets()
 
     def cancel_scan(self) -> None:
         self.workflow.reset()
         self.show_cancelled_result()
         self.scan_input.setFocus()
         self.update_scan_ready_indicator()
-        self.schedule_result_clear()
+        self.schedule_cancel_clear()
+        if self.manual_scan_panel is not None and self.manual_scan_panel.isVisible():
+            self.set_manual_scan_kind_for_current_mode()
+            self.refresh_manual_scan_targets()
 
     def show_cancelled_result(self) -> None:
         self.scan_error_active = False
@@ -1214,6 +1357,7 @@ class MainWindow(QMainWindow):
         try:
             self.pending_reset_seconds = parse_int_range(self.pending_reset_input.text(), "読み取り中のリセット時間", 5, 600)
             self.result_clear_seconds = parse_int_range(self.result_clear_input.text(), "読み取り結果を表示する時間", 10, 1800)
+            self.cancel_clear_seconds = parse_int_range(self.cancel_clear_input.text(), "キャンセル結果を表示する時間", 3, 600)
             csv_output_dir = self.parse_output_dir(self.csv_output_dir_input.text(), "CSV出力先フォルダ")
             png_output_dir = self.parse_output_dir(self.png_output_dir_input.text(), "PNG出力先フォルダ")
             pdf_output_dir = self.parse_output_dir(self.pdf_output_dir_input.text(), "PDF出力先フォルダ")
@@ -1238,6 +1382,7 @@ class MainWindow(QMainWindow):
         self.service.set_setting("default_event_date_filter", self.default_event_date_filter)
         self.service.set_setting_int("pending_reset_seconds", self.pending_reset_seconds)
         self.service.set_setting_int("result_clear_seconds", self.result_clear_seconds)
+        self.service.set_setting_int("cancel_clear_seconds", self.cancel_clear_seconds)
         self.clear_item_query()
         self.clear_event_query()
         QMessageBox.information(self, "設定保存", "設定を保存しました。")
@@ -1280,6 +1425,12 @@ class MainWindow(QMainWindow):
         version = self.result_clear_version
         self.start_countdown("結果表示", self.result_clear_seconds)
         QTimer.singleShot(self.result_clear_seconds * 1000, lambda: self.clear_result_display(version))
+
+    def schedule_cancel_clear(self) -> None:
+        self.result_clear_version += 1
+        version = self.result_clear_version
+        self.start_countdown("キャンセル", self.cancel_clear_seconds)
+        QTimer.singleShot(self.cancel_clear_seconds * 1000, lambda: self.clear_result_display(version))
 
     def clear_result_display(self, version: int) -> None:
         if version != self.result_clear_version:
@@ -1616,6 +1767,64 @@ class MainWindow(QMainWindow):
                 self.barcode_category_combo.setCurrentIndex(self.barcode_category_combo.count() - 1)
         self.barcode_category_combo.blockSignals(False)
 
+    def toggle_manual_scan_panel(self) -> None:
+        if self.manual_scan_panel is None or self.manual_scan_toggle_button is None:
+            return
+        visible = not self.manual_scan_panel.isVisible()
+        self.manual_scan_panel.setVisible(visible)
+        if self.manual_scan_message_gap is not None:
+            self.manual_scan_message_gap.setVisible(visible)
+        self.manual_scan_toggle_button.setText("-" if visible else "+")
+        if visible:
+            self.set_manual_scan_kind_for_current_mode()
+            self.refresh_manual_scan_categories()
+            self.refresh_manual_scan_targets()
+
+    def set_manual_scan_kind_for_current_mode(self) -> None:
+        if self.workflow.action_mode == "return" or (self.workflow.item_barcode and self.workflow.department_barcode):
+            target_kind = "ACTION"
+        elif self.workflow.item_barcode:
+            target_kind = "DEPT"
+        else:
+            target_kind = "ITEM"
+        index = self.manual_scan_kind.findText(target_kind)
+        if index >= 0:
+            self.manual_scan_kind.setCurrentIndex(index)
+
+    def refresh_manual_scan_categories(self) -> None:
+        current_category_id = self.manual_scan_category_combo.currentData()
+        self.manual_scan_category_combo.blockSignals(True)
+        self.manual_scan_category_combo.clear()
+        self.manual_scan_category_combo.addItem("すべて", None)
+        for category in self.service.list_categories():
+            self.manual_scan_category_combo.addItem(category["name"], category["id"])
+            if category["id"] == current_category_id:
+                self.manual_scan_category_combo.setCurrentIndex(self.manual_scan_category_combo.count() - 1)
+        self.manual_scan_category_combo.blockSignals(False)
+
+    def refresh_manual_scan_targets(self) -> None:
+        kind = self.manual_scan_kind.currentText() or "ITEM"
+        category_visible = kind == "ITEM"
+        self.manual_scan_category_label.setVisible(category_visible)
+        self.manual_scan_category_combo.setVisible(category_visible)
+        category_id = self.manual_scan_category_combo.currentData() if category_visible else None
+        current_value = self.manual_scan_target_combo.currentData()
+        self.manual_scan_target_combo.blockSignals(True)
+        self.manual_scan_target_combo.clear()
+        for label, value in self.service.barcode_targets(kind, category_id):
+            self.manual_scan_target_combo.addItem(f"{label} / {value}", value)
+            if value == current_value:
+                self.manual_scan_target_combo.setCurrentIndex(self.manual_scan_target_combo.count() - 1)
+        self.manual_scan_target_combo.blockSignals(False)
+
+    def execute_manual_scan(self) -> None:
+        barcode = self.manual_scan_target_combo.currentData()
+        if not barcode:
+            QMessageBox.warning(self, "選択なし", "実行する対象を選択してください。")
+            return
+        self.scan_input.setText(str(barcode))
+        self.handle_scan()
+
     def barcode_display_label(self, barcode: str) -> str:
         try:
             return self.service.barcode_display_label(barcode)
@@ -1638,6 +1847,8 @@ class MainWindow(QMainWindow):
         self.refresh_barcode_categories()
         self.refresh_department_filters()
         self.refresh_barcode_targets()
+        self.refresh_manual_scan_categories()
+        self.refresh_manual_scan_targets()
         self.refresh_items()
         self._fill_table(self.categories_table, self.service.list_categories(), CATEGORY_TABLE_HEADERS)
         self._fill_table(self.departments_table, self.service.list_departments(), DEPARTMENT_TABLE_HEADERS)
@@ -1995,7 +2206,7 @@ def scan_mode_title(state: str) -> str:
 
 
 def strong(text: str) -> str:
-    return f"<strong>{escape(text)}</strong>"
+    return f" <span style='font-size:26px; font-weight:900;'>{escape(text)}</span> "
 
 
 def detail_block(first: tuple[str, str], second: tuple[str, str]) -> str:
@@ -2003,10 +2214,10 @@ def detail_block(first: tuple[str, str], second: tuple[str, str]) -> str:
     for label, value in (first, second):
         rows.append(
             "<tr>"
-            "<td width='120' style='font-size:30px; font-weight:900; padding:0 0 3px 0; white-space:nowrap;'>"
+            "<td width='120' style='font-size:30px; font-weight:900; padding:0 0 1px 0; white-space:nowrap;'>"
             f"{escape(label)}</td>"
-            "<td style='font-size:30px; font-weight:900; padding:0 6px 3px 0;'>:</td>"
-            "<td style='font-size:30px; font-weight:900; padding:0 0 3px 0;'>"
+            "<td style='font-size:30px; font-weight:900; padding:0 6px 1px 0;'>:</td>"
+            "<td style='font-size:30px; font-weight:900; padding:0 0 1px 0;'>"
             f"{escape(value)}</td>"
             "</tr>"
         )
@@ -2014,7 +2225,7 @@ def detail_block(first: tuple[str, str], second: tuple[str, str]) -> str:
 
 
 def detail_spacer() -> str:
-    return "<span style='font-size:8px;'>&nbsp;</span><br>"
+    return "<span style='font-size:3px;'>&nbsp;</span><br>"
 
 
 def html_lines(text: str) -> str:
